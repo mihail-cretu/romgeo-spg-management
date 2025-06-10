@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, Literal
+from pathlib import Path
+import json
+from matplotlib.patches import Polygon as MplPolygon
 
 def _visualize_heatmap_geodetic(SPG, axis: Literal['x', 'y', 'both'] = None, saveas: Optional[str] = None, use_index: bool = False):
     """Plot a heatmap for the Geodetic Shifts Grid using real-world coordinates."""
@@ -26,7 +29,7 @@ def _visualize_heatmap_geodetic(SPG, axis: Literal['x', 'y', 'both'] = None, sav
         title = f'X Shift Difference (RMSE: {rmse:.4f} m)'
 
     elif axis == 'y':
-        flipped_grid = np.flipud(flipped_grid[1])
+        flipped_grid = np.flipud(grid[1])
 
         rmse = np.sqrt(np.nanmean(flipped_grid ** 2))
         title = f'Y Shift Difference (RMSE: {rmse:.4f} m)'
@@ -54,7 +57,7 @@ def _visualize_heatmap_geodetic(SPG, axis: Literal['x', 'y', 'both'] = None, sav
         plt.show()
 
 def _visualize_heatmap_geoid(SPG, saveas: Optional[str] = None, use_index: bool = False):
-    """Plot a heatmap for the Geoid Heights Grid using real-world coordinates."""
+    """Plot a heatmap for the Geoid Heights Grid using real-world coordinates and overlay Romania polygon."""
     min_lon, max_lon = SPG.data["grids"]["geoid_heights"]["metadata"]["minla"],  SPG.data["grids"]["geoid_heights"]["metadata"]["maxla"]  # X-axis (Longitude)
     min_lat, max_lat = SPG.data["grids"]["geoid_heights"]["metadata"]["minphi"], SPG.data["grids"]["geoid_heights"]["metadata"]["maxphi"]  # Y-axis (Latitude)
     
@@ -77,6 +80,24 @@ def _visualize_heatmap_geoid(SPG, saveas: Optional[str] = None, use_index: bool 
     plt.title(f"Geoid Heights Grid (RMSE: {rmse:.4f} m)")
     plt.xlabel("Longitude (°)" if not use_index else "X index")
     plt.ylabel("Latitude (°)" if not use_index else "Y index")
+
+    # Overlay Romania polygon, if not using index coordinates
+    if not use_index:
+        geojson_path = Path(__file__).parent / 'romania_polygon.geojson'
+        if geojson_path.exists():
+            with open(geojson_path, 'r', encoding='utf-8') as f:
+                geojson = json.load(f)
+            for feature in geojson.get('features', []):
+                geom = feature.get('geometry', {})
+                if geom.get('type') == 'Polygon':
+                    for coords in geom.get('coordinates', []):
+                        poly = MplPolygon(coords, closed=True, fill=False, edgecolor='black', linewidth=0.7)
+                        plt.gca().add_patch(poly)
+                elif geom.get('type') == 'MultiPolygon':
+                    for polygon in geom.get('coordinates', []):
+                        for coords in polygon:
+                            poly = MplPolygon(coords, closed=True, fill=False, edgecolor='black', linewidth=0.7)
+                            plt.gca().add_patch(poly)
 
     if saveas:
         plt.savefig(saveas)
