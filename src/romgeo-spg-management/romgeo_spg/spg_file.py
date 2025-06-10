@@ -158,25 +158,32 @@ class SPGFile:
         except:
             return {'major': None, 'minor': None, 'revision': 0, 'legacy': None}
 
-    def generate_tree_structure(self, obj=None, indent=0) -> str:
+    def print_tree_structure(self, obj=None, indent=0) -> str:
         """Recursively generate a tree-like structure of the SPG file, displaying parameter values compactly."""
         if obj is None:
             obj = self.data  # Start with the root of the pickle data
-    
+
         tree_str = ""
         indent_str = " " * (indent * 2)
-    
+
         if isinstance(obj, dict):
             for key, value in obj.items():
-                tree_str += f"{indent_str}- {key}: {self._format_value(value)}\n"
-                tree_str += self.generate_tree_structure(value, indent + 1)
+                if isinstance(value, (dict, list)):
+                    tree_str += f"{indent_str}- {key}:\n"
+                    tree_str += self.print_tree_structure(value, indent + 4)
+                elif isinstance(value, np.ndarray):
+                    tree_str += f"{indent_str}- {key}: NumPy Array (shape={value.shape}, dtype={value.dtype})\n"
+                else:
+                    tree_str += f"{indent_str}- {key}: {self._format_value(value)}\n"
         elif isinstance(obj, list):
             tree_str += f"{indent_str}- List[{len(obj)}]\n"
-            if len(obj) > 0:
-                tree_str += self.generate_tree_structure(obj[0], indent + 1)
+            for item in obj:
+                tree_str += self.print_tree_structure(item, indent + 4)
         elif isinstance(obj, np.ndarray):
             tree_str += f"{indent_str}- NumPy Array (shape={obj.shape}, dtype={obj.dtype})\n"
-    
+        else:
+            tree_str += f"{indent_str}- {self._format_value(obj)}\n"
+
         return tree_str
     
     def _format_value(self, value):
@@ -188,7 +195,7 @@ class SPGFile:
         elif isinstance(value, (int, np.int32, np.int64)):
             return f"{value} (dtype={np.dtype(type(value)).name})"
         return type(value).__name__
-
+    
     def save_spg(self, output_path: str):
         """Save the current data back into a .spg (pickle) file."""
         with open(output_path, "wb") as file:
@@ -198,18 +205,17 @@ class SPGFile:
         """Save the SPG file content as JSON."""
         with open(output_path, "w") as file:
             json.dump(self.data, file, indent=4)
+    
 
-    def generate_metadata_json(self, output_path: str = None):
+    def append_cnc_metadata(self, output_path: str = None):
         """Generate a metadata.json file for the SPG grid based on class metadata."""
         metadata = self.data.get("metadata", {})
         output_file = self.data.get("params", {}).get("output_file", "grid.spg")
 
         if metadata:
             metadata_json = metadata
-        else:
-        
+        else:        
             metadata_json = {
-                output_file: {
                     "file": output_file,
                     "license": "CC by-nd 4.0",
                     "created_by": "CNC",
@@ -231,18 +237,22 @@ class SPGFile:
                         '</a></p>'
                     ),
                     "abstract": "(C) CNC 2025",
-                    "notes": "exact replica of previous version grid (4.0.8)",
+                    "notes": "",
                     "release": {
-                        "major": metadata.get("major_release", '25'),
-                        "minor": metadata.get("minor_release", '04'),
+                        "major": metadata.get("major_release", None),
+                        "minor": metadata.get("minor_release", None),
                         "revision": metadata.get("revision", 0),
-                        "legacy": metadata.get("legacy", "no"),
+                        "legacy": metadata.get("legacy", None),
                     },
-                    "release_date": metadata.get("release_date", "2025-04-30T00:00:00+00:00"),
-                    "valid_from": metadata.get("valid_from", "2025-04-30T00:00:00+00:00"),
-                    "valid_to": metadata.get("valid_to", "None"),
+                    "release_date": metadata.get("release_date", None),
+                    "valid_from": metadata.get("valid_from", None),
+                    "valid_to": metadata.get("valid_to", None),
                 }
-            }
+
+
+            self.data["metadata"] = metadata_json
+        
+
         if output_path:
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(metadata_json, f, indent=4, ensure_ascii=False)
@@ -270,4 +280,4 @@ class SPGFile:
         """Reset the SPG file to an empty structure."""
         self.data = self.generate_empty_spg_structure()
         self.datans = self._recursive_namespace(self.data)
-    
+
