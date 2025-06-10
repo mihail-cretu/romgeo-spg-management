@@ -30,8 +30,12 @@ class SPGManagerGUI(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
+        self.export_actions = []
+        self.preview_actions = []
+        self.compare_action = None  # <-- Add this
         self.init_menu()
         self.init_tabs()
+        self.update_export_preview_actions()
 
     def init_menu(self):
         menubar = self.menuBar()
@@ -44,16 +48,13 @@ class SPGManagerGUI(QMainWindow):
         save_action = QAction("Save SPG", self)
         save_action.triggered.connect(self.save_spg)
         file_menu.addAction(save_action)
+
         file_menu.addSeparator()
 
         show_structure_action = QAction("Show SPG Structure", self)
         show_structure_action.triggered.connect(self.show_spg_structure)
         file_menu.addAction(show_structure_action)
-        file_menu.addSeparator()
 
-        compare_action = QAction("Compare SPG", self)      
-        compare_action.triggered.connect(self.compare_spg)
-        file_menu.addAction(compare_action)
         file_menu.addSeparator()
 
         new_action = QAction("New SPG", self)
@@ -65,50 +66,76 @@ class SPGManagerGUI(QMainWindow):
         ))
         new_action.setEnabled(False)  # Initially disabled, enable when needed
         file_menu.addAction(new_action)
+        
+        add_cnc_action = QAction("Add/Reset CNC Metadata", self)
+        add_cnc_action.triggered.connect(
+            lambda: (
+            self.spg.append_cnc_metadata(),
+            self.tree_widget.clear() if hasattr(self, "tree_widget") else None,
+            self.show_edit_tree() if hasattr(self, "tree_widget") else None
+            )
+        )
+        file_menu.addAction(add_cnc_action)
+
         file_menu.addSeparator()
         
-        clear_action = QAction("Clear SPG", self)
-        clear_action.triggered.connect(lambda: self.spg.clear())
-        clear_action.setEnabled(False)  # Initially disabled, enable when needed
-        file_menu.addAction(clear_action)
-        file_menu.addSeparator()
+        self.compare_action = QAction("Compare SPG", self)  # <-- Store as instance variable
+        self.compare_action.triggered.connect(self.compare_spg)
+        self.compare_action.setEnabled(False)  # Initially disabled
+        file_menu.addAction(self.compare_action)
         
+        file_menu.addSeparator()
+
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
-        file_menu.addSeparator()        
-
-        export_menu = menubar.addMenu("Export")
-        export_menu.addAction("Export X Grid CSV", lambda: self.export_grid_csv(self.geodetic_x_table))
-        export_menu.addAction("Export Y Grid CSV", lambda: self.export_grid_csv(self.geodetic_y_table))
-        export_menu.addAction("Export Z Grid CSV", lambda: self.export_grid_csv(self.geoid_table))
-        export_menu.addSeparator()
-        export_menu.addAction("Export X@Y Grid CSV", self.export_xy_grid_csv)
-        export_menu.addSeparator()
-        export_menu.addAction("Export Surfer 6 GRT XY", self.export_legacy_xy_grt)
-        export_menu.addAction("Export Surfer 6 GRT Z",  self.export_legacy_z_grt)
-        export_menu.addSeparator()
-        export_menu.addAction("Export Legacy TXT XY", self.export_legacy_txt_xy)
-        export_menu.addAction("Export Legacy TXT Z",  self.export_legacy_txt_z)
+        file_menu.addSeparator()    
 
         import_menu = menubar.addMenu("Import")
         import_menu.addAction("Import X Grid CSV", lambda: self.import_grid_csv(self.geodetic_x_table))
         import_menu.addAction("Import Y Grid CSV", lambda: self.import_grid_csv(self.geodetic_y_table))
         import_menu.addAction("Import Z Grid CSV", lambda: self.import_grid_csv(self.geoid_table))
 
-        preview_menu = menubar.addMenu("Preview")
-        preview_menu.addAction("Geodetic Shifts X",   lambda: self.visualize_geodetic_shifts('x'))
-        preview_menu.addAction("Geodetic Shifts y",   lambda: self.visualize_geodetic_shifts('y'))
-        preview_menu.addAction("Geodetic Shifts X*Y", lambda: self.visualize_geodetic_shifts('both'))
-        preview_menu.addSeparator()
-        preview_menu.addAction("Geoid Heights Z", lambda: self.visualize_geoid_heights())
-        preview_menu.addSeparator()
-        preview_menu.addAction("Geodetic Shifts X (by index)",   lambda: self.visualize_geodetic_shifts('x', use_index=True))
-        preview_menu.addAction("Geodetic Shifts y (by index)",   lambda: self.visualize_geodetic_shifts('y', use_index=True))
-        preview_menu.addAction("Geodetic Shifts X*Y (by index)", lambda: self.visualize_geodetic_shifts('both', use_index=True))
-        preview_menu.addSeparator()
-        preview_menu.addAction("Geoid Heights Z (by index)", lambda: self.visualize_geoid_heights(use_index=True))
+        export_menu = menubar.addMenu("Export")
+        self.export_actions = [
+            export_menu.addAction("Export X Grid CSV", lambda: self.export_grid_csv(self.geodetic_x_table)),
+            export_menu.addAction("Export Y Grid CSV", lambda: self.export_grid_csv(self.geodetic_y_table)),
+            export_menu.addAction("Export Z Grid CSV", lambda: self.export_grid_csv(self.geoid_table)),
+            export_menu.addSeparator(),
+            export_menu.addAction("Export X@Y Grid CSV", self.export_xy_grid_csv),
+            export_menu.addSeparator(),
+            export_menu.addAction("Export Surfer 6 GRT XY", self.export_legacy_xy_grt),
+            export_menu.addAction("Export Surfer 6 GRT Z",  self.export_legacy_z_grt),
+            export_menu.addSeparator(),
+            export_menu.addAction("Export Legacy TXT XY", self.export_legacy_txt_xy),
+            export_menu.addAction("Export Legacy TXT Z",  self.export_legacy_txt_z)
+        ]
 
+        preview_menu = menubar.addMenu("Preview")
+        self.preview_actions = [
+            preview_menu.addAction("Geodetic Shifts X",   lambda: self.visualize_geodetic_shifts('x')),
+            preview_menu.addAction("Geodetic Shifts y",   lambda: self.visualize_geodetic_shifts('y')),
+            preview_menu.addAction("Geodetic Shifts X*Y", lambda: self.visualize_geodetic_shifts('both')),
+            preview_menu.addSeparator(),
+            preview_menu.addAction("Geoid Heights Z", lambda: self.visualize_geoid_heights()),
+            preview_menu.addSeparator(),
+            preview_menu.addAction("Geodetic Shifts X (by index)",   lambda: self.visualize_geodetic_shifts('x', use_index=True)),
+            preview_menu.addAction("Geodetic Shifts y (by index)",   lambda: self.visualize_geodetic_shifts('y', use_index=True)),
+            preview_menu.addAction("Geodetic Shifts X*Y (by index)", lambda: self.visualize_geodetic_shifts('both', use_index=True)),
+            preview_menu.addSeparator(),
+            preview_menu.addAction("Geoid Heights Z (by index)", lambda: self.visualize_geoid_heights(use_index=True))
+        ]
+
+    def update_export_preview_actions(self):
+        has_data = self.geodetic_x_table.rowCount() > 0 and self.geodetic_x_table.columnCount() > 0
+        for action in self.export_actions:
+            if isinstance(action, QAction):
+                action.setEnabled(has_data)
+        for action in self.preview_actions:
+            if isinstance(action, QAction):
+                action.setEnabled(has_data)
+        if self.compare_action:
+            self.compare_action.setEnabled(has_data)  # <-- Enable/disable Compare SPG
 
     def init_tabs(self):
         self.tree_widget = QTreeWidget()
@@ -126,8 +153,10 @@ class SPGManagerGUI(QMainWindow):
         self.tabs.addTab(self.geoid_table, "Geoid Heights Grid")
 
     def show_spg_structure(self):
+
         if self.spg:
-            structure = self.spg.generate_tree_structure()
+
+            structure = self.spg.print_tree_structure()
             dlg = QDialog(self)
             dlg.setWindowTitle("SPG Structure")
             dlg.resize(800, 600)
@@ -151,7 +180,7 @@ class SPGManagerGUI(QMainWindow):
                 self.spg = SPGFile(file_path)
                 self.tree_widget.clear()
                 self.load_grids_to_tables()
-                QMessageBox.information(self, "Loaded", f"Loaded SPG File: {file_path}")
+                #QMessageBox.information(self, "Loaded", f"Loaded SPG File: {file_path}")
                 self.show_edit_tree()
                 self.setWindowTitle(f"SPG File Manager - {file_path}")
             except Exception as e:
@@ -173,6 +202,7 @@ class SPGManagerGUI(QMainWindow):
         self._load_grid_to_table(self.geodetic_x_table, x_grid)
         self._load_grid_to_table(self.geodetic_y_table, y_grid)
         self._load_grid_to_table(self.geoid_table, z_grid)
+        self.update_export_preview_actions()  # <-- Add this
 
     def _load_grid_to_table(self, table, grid):
         rows, cols = grid.shape
@@ -237,7 +267,8 @@ class SPGManagerGUI(QMainWindow):
         self.spg.data["grids"]["geoid_heights"]["grid"][0] = np.reshape(table_to_array(self.geoid_table), (geo_rows, geo_cols))
 
         self.tree_widget.clear()
-        self.show_edit_tree()        
+        self.show_edit_tree()
+        self.update_export_preview_actions()  # <-- Add this
 
     def show_edit_tree(self):
         root = QTreeWidgetItem(["SPG Structure"])
@@ -299,6 +330,7 @@ class SPGManagerGUI(QMainWindow):
             for i in range(df.shape[0]):
                 for j in range(df.shape[1]):
                     table.setItem(i, j, QTableWidgetItem(str(df.iat[i, j])))
+        self.update_export_preview_actions()  # <-- Add this
 
     def export_grid_csv(self, table):
         file_path, _ = QFileDialog.getSaveFileName(self, "Export CSV", "", "CSV Files (*.csv)")
