@@ -2,7 +2,7 @@
 
 A management system for Romgeo SPG, designed to streamline operations.
 
-[Work in Progress](https://img.shields.io/badge/status-WIP-yellow.svg)
+![Work in Progress](https://img.shields.io/badge/status-WIP-yellow.svg)
 
 ## Features
 
