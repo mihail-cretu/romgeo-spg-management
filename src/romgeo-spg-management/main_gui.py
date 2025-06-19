@@ -37,6 +37,15 @@ class SPGManagerGUI(QMainWindow):
         self.init_tabs()
         self.update_export_preview_actions()
 
+        # self.tree_widget.setAcceptDrops(True)
+        # self.tree_widget.dragEnterEvent = self.drag_enter_event
+        # self.tree_widget.dropEvent = self.drop_event
+
+        self.setAcceptDrops(True)
+        self.dragEnterEvent = self.drag_enter_event
+        self.dropEvent = self.drop_event
+
+
     def init_menu(self):
         menubar = self.menuBar()
         file_menu = menubar.addMenu("File")
@@ -188,6 +197,9 @@ class SPGManagerGUI(QMainWindow):
 
     def save_spg(self):
         if self.spg:
+            
+            
+
             self.save_grids_from_tables()
             file_path, _ = QFileDialog.getSaveFileName(self, "Save SPG File", "", "SPG Files (*.spg)")
             if file_path:
@@ -311,6 +323,39 @@ class SPGManagerGUI(QMainWindow):
                 item = QTreeWidgetItem([str(key), str(value)])
                 parent.addChild(item)
 
+    def _update_spg_tree_item(self, item, new_value):
+        """
+        Updates the self.spg dictionary based on the tree item's hierarchy and the new value.
+        """
+        def get_parent_path(item):
+            path = []
+            while item is not None:
+                path.insert(0, item.text(0))
+                item = item.parent()
+            return path
+
+        path = get_parent_path(item)
+        # Remove the root node "SPG Structure" from the path
+        if path[0] == "SPG Structure":
+            path = path[1:]
+
+        current_dict = self.spg.data
+
+        # Traverse the dictionary using the path
+        for key in path[:-1]:
+            if key in current_dict:
+                current_dict = current_dict[key]
+            else:
+                return  # Key not found, exit
+
+        # Update the value for the last key in the path
+        last_key = path[-1]
+        try:
+            # Attempt to convert the new value to a number if possible
+            current_dict[last_key] = float(new_value) if new_value.replace('.', '', 1).isdigit() else new_value
+        except ValueError:
+            current_dict[last_key] = new_value
+
     def edit_tree_item(self, item, column):
         if column == 1 and item.data(1, Qt.UserRole) is not None:
             self.tabs.setCurrentIndex(item.data(1, Qt.UserRole))
@@ -320,6 +365,8 @@ class SPGManagerGUI(QMainWindow):
             new_value, ok = QInputDialog.getMultiLineText(self, "Edit Value", f"New value for '{item.text(0)}':", old_value)
             if ok:
                 item.setText(1, new_value)
+                self._update_spg_tree_item(item, new_value)
+                
 
     def import_grid_csv(self, table):
         file_path, _ = QFileDialog.getOpenFileName(self, "Import CSV", "", "CSV Files (*.csv)")
@@ -529,6 +576,31 @@ class SPGManagerGUI(QMainWindow):
             dlg.exec_()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to compare SPG files: {str(e)}")
+
+    def drag_enter_event(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().endswith(".spg"):
+                    event.accept()
+                    return
+        event.ignore()
+
+    def drop_event(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if file_path.endswith(".spg"):
+                    self.load_spg_from_path(file_path)
+
+    def load_spg_from_path(self, file_path):
+        try:
+            self.spg = SPGFile(file_path)
+            self.tree_widget.clear()
+            self.load_grids_to_tables()
+            self.show_edit_tree()
+            self.setWindowTitle(f"SPG File Manager - {file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load SPG file: {str(e)}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
