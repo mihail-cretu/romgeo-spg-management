@@ -2,7 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, Literal
 import json
+from pathlib import Path
 
+THRESHOLDS = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
+# THRESHOLDS = [0.06, 0.12, 0.3]
+ISOLINES = [0.12]  # 12cm and 20cm bands
 
 def compare_geoid_heights(SPG, other_SPG: str, saveas: Optional[str] = None):
     from pathlib import Path
@@ -129,7 +133,7 @@ def compare_geodetic_shifts(SPG, other_SPG: str, mode: Literal['x', 'y', 'both']
     else:
         plt.show()
 
-def compare_geoid_heights_interpolated(SPG, other_SPG: str, saveas: Optional[str] = None):
+def compare_geoid_heights_interpolated_nothresholds(SPG, other_SPG: str, saveas: Optional[str] = None):
     from scipy.interpolate import RegularGridInterpolator
     import geopandas as gpd
     from shapely.geometry import Point
@@ -188,3 +192,186 @@ def compare_geoid_heights_interpolated(SPG, other_SPG: str, saveas: Optional[str
         plt.show()
 
     return rmse, mean
+
+def compare_geoid_heights_interpolated_thresholds(SPG, other_SPG: str, saveas: Optional[str] = None):
+    from scipy.interpolate import RegularGridInterpolator
+    import geopandas as gpd
+    from shapely.geometry import Point
+    from pathlib import Path
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # Load Romania polygon
+    romania_geojson = Path(__file__).parent / 'romania_polygon.geojson'
+    romania_poly = gpd.read_file(romania_geojson).geometry.unary_union
+
+    # Target grid
+    meta1 = SPG.data["grids"]["geoid_heights"]["metadata"]
+    lat1 = np.linspace(meta1['minphi'], meta1['maxphi'], meta1['nrows'])
+    lon1 = np.linspace(meta1['minla'], meta1['maxla'], meta1['ncols'])
+
+    # Source grid
+    meta2 = other_SPG.data["grids"]["geoid_heights"]["metadata"]
+    lat2 = np.linspace(meta2['minphi'], meta2['maxphi'], meta2['nrows'])
+    lon2 = np.linspace(meta2['minla'], meta2['maxla'], meta2['ncols'])
+    grid2 = np.squeeze(other_SPG.data["grids"]["geoid_heights"]["grid"])
+
+    interpolator = RegularGridInterpolator((lat2, lon2), grid2, bounds_error=False, fill_value=np.nan)
+
+    # Interpolation points
+    lon_grid, lat_grid = np.meshgrid(lon1, lat1)
+    flat_points = np.stack([lat_grid.ravel(), lon_grid.ravel()], axis=-1)
+    mask = np.array([romania_poly.contains(Point(lon, lat)) for lat, lon in flat_points])
+
+    interp_vals = interpolator(flat_points)
+    interp_vals[~mask] = np.nan
+    interp_grid2 = interp_vals.reshape(len(lat1), len(lon1))
+
+    # Actual grid
+    grid1 = np.squeeze(SPG.data["grids"]["geoid_heights"]["grid"])
+    diff = grid1 - interp_grid2
+    diff[~mask.reshape(len(lat1), len(lon1))] = np.nan
+
+    # Metrics
+    abs_diff = np.abs(diff)
+    rmse = np.sqrt(np.nanmean(diff**2))
+    mean = np.nanmean(diff)
+
+    threshold_counts = {thr: np.nansum(abs_diff < thr) for thr in THRESHOLDS}
+    threshold_info = " | ".join([f"<{int(thr*100)}cm: {cnt}" for thr, cnt in threshold_counts.items()])
+
+    # Plot
+    plt.figure(figsize=(10, 6))
+    plt.pcolormesh(lon_grid, lat_grid, diff, shading='auto', cmap='bwr')
+    plt.colorbar(label='Geoid Height Difference (m)')
+    plt.title(f'Interpolated Geoid Height Difference (Romania)\n'
+              f'RMSE: {rmse:.4f} m | Mean: {mean:.4f} m\n{threshold_info}')
+    plt.xlabel('Longitude')
+    plt.ylabel('Latitude')
+    plt.tight_layout()
+
+    if saveas:
+        plt.savefig(saveas)
+        plt.close()
+    else:
+        plt.show()
+
+    return rmse, mean, threshold_counts
+
+def compare_geoid_heights_interpolated(SPG, other_SPG: str, saveas: Optional[str] = None):
+    from scipy.interpolate import RegularGridInterpolator
+    import geopandas as gpd
+    from shapely.geometry import Point
+    from pathlib import Path
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LinearSegmentedColormap
+
+
+    romania_geojson = Path(__file__).parent / 'romania_polygon.geojson'
+    romania_poly = gpd.read_file(romania_geojson).geometry.unary_union
+
+    meta1 = SPG.data["grids"]["geoid_heights"]["metadata"]
+    lat1 = np.linspace(meta1['minphi'], meta1['maxphi'], meta1['nrows'])
+    lon1 = np.linspace(meta1['minla'], meta1['maxla'], meta1['ncols'])
+
+    meta2 = other_SPG.data["grids"]["geoid_heights"]["metadata"]
+    lat2 = np.linspace(meta2['minphi'], meta2['maxphi'], meta2['nrows'])
+    lon2 = np.linspace(meta2['minla'], meta2['maxla'], meta2['ncols'])
+    grid2 = np.squeeze(other_SPG.data["grids"]["geoid_heights"]["grid"])
+
+    interpolator = RegularGridInterpolator((lat2, lon2), grid2, bounds_error=False, fill_value=np.nan)
+
+    lon_grid, lat_grid = np.meshgrid(lon1, lat1)
+    flat_points = np.stack([lat_grid.ravel(), lon_grid.ravel()], axis=-1)
+    mask = np.array([romania_poly.contains(Point(lon, lat)) for lat, lon in flat_points])
+
+    interp_vals = interpolator(flat_points)
+    interp_vals[~mask] = np.nan
+    interp_grid2 = interp_vals.reshape(len(lat1), len(lon1))
+
+    grid1 = np.squeeze(SPG.data["grids"]["geoid_heights"]["grid"])
+    diff = grid1 - interp_grid2
+    diff[~mask.reshape(len(lat1), len(lon1))] = np.nan
+
+    abs_diff = np.abs(diff)
+    rmse = np.sqrt(np.nanmean(diff**2))
+    mean = np.nanmean(diff)
+
+    threshold_counts = {thr: np.nansum(abs_diff < thr) for thr in THRESHOLDS}
+    threshold_info = " | ".join([f"<{int(thr*100)}cm: {cnt}" for thr, cnt in threshold_counts.items()])
+
+    # Plot
+    plt.figure(figsize=(20, 12))
+    cmap = plt.get_cmap("bwr")
+    pcm = plt.pcolormesh(lon_grid, lat_grid, diff, shading='auto', cmap=cmap)
+
+    # Custom colormap: white from 0 to 0.12, then fades to red by 1.0
+    colors = [(1, 1, 1), (1, 0, 0)]  # white to red
+    cmap = LinearSegmentedColormap.from_list("white_to_red_offset", colors, N=256)
+
+    # Apply it with vmin=0, vmax=1 — but stretch white for 0–0.12
+    norm = plt.Normalize(vmin=0.12)
+    # Use abs_diff for absolute value shading
+    pcm = plt.pcolormesh(lon_grid, lat_grid, abs_diff, shading='auto', cmap=cmap, norm=norm)
+
+    # cmap = plt.get_cmap("Reds")
+    # pcm = plt.pcolormesh(lon_grid, lat_grid, abs_diff, shading='auto', cmap=cmap, vmin=0, vmax=1)
+    plt.colorbar(pcm, label='Geoid Height Difference abs(m)')
+
+    # Contours: detailed fine lines
+    cs_detail = plt.contour(lon_grid, lat_grid, abs_diff, levels=THRESHOLDS, colors='black', linewidths=0.05)
+    plt.clabel(cs_detail, inline=True, fontsize=7, fmt=lambda val: f"<{int(val * 100)}cm")
+
+    # Contours: grouped bands (thicker) ISOLINES
+    band_levels = ISOLINES + [np.nanmax(abs_diff)]
+    cs_group = plt.contour(lon_grid, lat_grid, abs_diff, levels=band_levels, colors='green', linewidths=1.0, linestyles='solid')
+    plt.clabel(cs_group, inline=True, fontsize=8, fmt=lambda val: f"≤{int(val*100)}cm" if val <= 0.20 else ">20cm")
+
+    plt.title(f'Interpolated Geoid Height Difference (Romania)\n'
+              f'{Path(SPG.file_path).name} vs. {Path(other_SPG.file_path).name}\n'
+              f'RMSE: {rmse:.4f} m | Mean: {mean:.4f} m\n{threshold_info}')
+    plt.xlabel('Longitude')
+    plt.ylabel('Latitude')
+    plt.tight_layout()
+
+    if saveas:
+        plt.savefig(saveas)
+        plt.close()
+    else:
+        plt.show()
+
+    return rmse, mean, threshold_counts
+
+
+if __name__ == "__main__":
+    from spg_file import SPGFile
+
+    # spg_file       = ".test/rom_grid3d_04.08.spg"
+    # other_spg_file = ".test/rom_grid3d_25.05.spg"
+
+    # spg = SPGFile(spg_file)
+    # other_spg = SPGFile(other_spg_file)
+
+    # compare_geoid_heights(spg, other_spg)
+    # compare_geodetic_shifts(spg, other_spg, mode='both')
+    # compare_geoid_heights_interpolated_nothresholds(spg, other_spg)
+    # compare_geoid_heights_interpolated_thresholds(spg, other_spg)
+    # compare_geoid_heights_interpolated(spg, other_spg, saveas="408-2505.png")
+
+    # spg_file       = ".test/rom_grid3d_04.08.spg"
+    # other_spg_file = ".test/rom_grid3d_25.05_shift.spg"
+
+    # spg = SPGFile(spg_file)
+    # other_spg = SPGFile(other_spg_file)
+    # compare_geoid_heights_interpolated(spg, other_spg, saveas="408-2505_shift.png")
+
+
+
+
+    spg_file       = ".test/rom_grid3d_04.08.spg"
+    other_spg_file = ".test/rom_grid3d_25.05_shift_lanczos.spg"
+
+    spg = SPGFile(spg_file)
+    other_spg = SPGFile(other_spg_file)
+    compare_geoid_heights_interpolated(spg, other_spg, saveas="408-2505_shift_lanczos.png")
