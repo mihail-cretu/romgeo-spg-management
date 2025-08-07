@@ -178,3 +178,4 @@ cython_debug/
 # own temp files
 __*.*
 .test/
+.vscode/
