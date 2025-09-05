@@ -1,3 +1,7 @@
+import warnings
+warnings.filterwarnings("ignore")
+
+
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QPushButton, QAction, QMessageBox, QInputDialog,
@@ -6,12 +10,14 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 
 from romgeo_spg.spg_file import SPGFile
-from romgeo_spg.plot import visualize_heatmap
-from romgeo_spg.compare import compare_geoid_heights, compare_geodetic_shifts, compare_geoid_heights_interpolated
+from romgeo_spg.spg_plot import visualize_heatmap
+from romgeo_spg.spg_compare import compare_geoid_heights, compare_geodetic_shifts, compare_geoid_heights_interpolated
+from romgeo_spg.spg_export import save_geoid_as_geotiff, save_geodetic_shifts_as_geotiff
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import argparse
 
 
 pd.set_option('display.max_rows', None)
@@ -105,35 +111,60 @@ class SPGManagerGUI(QMainWindow):
         import_menu.addAction("Import Y Grid CSV", lambda: self.import_grid_csv(self.geodetic_y_table))
         import_menu.addAction("Import Z Grid CSV", lambda: self.import_grid_csv(self.geoid_table))
 
-        export_menu = menubar.addMenu("Export")
+        export_menu = menubar.addMenu("Export")        
+        # --- Export submenus ---
+        export_csv_menu = export_menu.addMenu("CSV")
         self.export_actions = [
-            export_menu.addAction("Export X Grid CSV", lambda: self.export_grid_csv(self.geodetic_x_table)),
-            export_menu.addAction("Export Y Grid CSV", lambda: self.export_grid_csv(self.geodetic_y_table)),
-            export_menu.addAction("Export Z Grid CSV", lambda: self.export_grid_csv(self.geoid_table)),
-            export_menu.addSeparator(),
-            export_menu.addAction("Export X@Y Grid CSV", self.export_xy_grid_csv),
-            export_menu.addSeparator(),
-            export_menu.addAction("Export Surfer 6 GRT XY", self.export_legacy_xy_grt),
-            export_menu.addAction("Export Surfer 6 GRT Z",  self.export_legacy_z_grt),
-            export_menu.addSeparator(),
-            export_menu.addAction("Export Legacy TXT XY", self.export_legacy_txt_xy),
-            export_menu.addAction("Export Legacy TXT Z",  self.export_legacy_txt_z)
+            export_csv_menu.addAction("Export X Grid CSV", lambda: self.export_grid_csv(self.geodetic_x_table)),
+            export_csv_menu.addAction("Export Y Grid CSV", lambda: self.export_grid_csv(self.geodetic_y_table)),
+            export_csv_menu.addAction("Export Z Grid CSV", lambda: self.export_grid_csv(self.geoid_table)),
+            export_csv_menu.addSeparator(),
+            export_csv_menu.addAction("Export X@Y Grid CSV", self.export_xy_grid_csv),
+        ]
+
+        export_surfer_menu = export_menu.addMenu("Surfer")
+        self.export_actions += [
+            export_surfer_menu.addAction("Export Surfer 6 GRT XY", self.export_legacy_xy_grt),
+            export_surfer_menu.addAction("Export Surfer 6 GRT Z",  self.export_legacy_z_grt),
+        ]
+
+        export_legacy_menu = export_menu.addMenu("Legacy")
+        self.export_actions += [
+            export_legacy_menu.addAction("Export Legacy TXT XY", self.export_legacy_txt_xy),
+            export_legacy_menu.addAction("Export Legacy TXT Z",  self.export_legacy_txt_z),
+        ]
+
+        export_geotiff_menu = export_menu.addMenu("GeoTiff")
+        # Placeholder for future GeoTiff export actions
+        self.export_actions += [
+             export_geotiff_menu.addAction("Export GeoTiff Band1:X, Band2:Y", lambda: self.export_geotiff_xy() ),
+             export_geotiff_menu.addAction("Export GeoTiff Band1:Z",          lambda: self.export_geotiff_z() ),
         ]
 
         preview_menu = menubar.addMenu("Preview")
+
+        # --- Geodetic Shifts submenu ---
+        shifts_menu = preview_menu.addMenu("Geodetic Shifts")
         self.preview_actions = [
-            preview_menu.addAction("Geodetic Shifts X",   lambda: self.visualize_geodetic_shifts('x')),
-            preview_menu.addAction("Geodetic Shifts y",   lambda: self.visualize_geodetic_shifts('y')),
-            preview_menu.addAction("Geodetic Shifts X*Y", lambda: self.visualize_geodetic_shifts('both')),
-            preview_menu.addSeparator(),
-            preview_menu.addAction("Geoid Heights Z", lambda: self.visualize_geoid_heights()),
-            preview_menu.addSeparator(),
-            preview_menu.addAction("Geodetic Shifts X (by index)",   lambda: self.visualize_geodetic_shifts('x', use_index=True)),
-            preview_menu.addAction("Geodetic Shifts y (by index)",   lambda: self.visualize_geodetic_shifts('y', use_index=True)),
-            preview_menu.addAction("Geodetic Shifts X*Y (by index)", lambda: self.visualize_geodetic_shifts('both', use_index=True)),
-            preview_menu.addSeparator(),
-            preview_menu.addAction("Geoid Heights Z (by index)", lambda: self.visualize_geoid_heights(use_index=True))
+            shifts_menu.addAction("X",   lambda: self.visualize_geodetic_shifts('x')),
+            shifts_menu.addAction("Y",   lambda: self.visualize_geodetic_shifts('y')),
+            shifts_menu.addAction("X * Y", lambda: self.visualize_geodetic_shifts('both')),
+            shifts_menu.addSeparator(),
+            shifts_menu.addAction("X (by index)",   lambda: self.visualize_geodetic_shifts('x', use_index=True)),
+            shifts_menu.addAction("Y (by index)",   lambda: self.visualize_geodetic_shifts('y', use_index=True)),
+            shifts_menu.addAction("X * Y (by index)", lambda: self.visualize_geodetic_shifts('both', use_index=True)),
         ]
+
+        # --- Geoid Heights submenu ---
+        geoid_menu = preview_menu.addMenu("Geoid Heights")
+        self.preview_actions += [
+            geoid_menu.addAction("Z (default)", lambda: self.visualize_geoid_heights()),
+            geoid_menu.addAction("Z (isolines 2cm)", lambda: self.visualize_geoid_heights(isolines=2.0)),
+            geoid_menu.addAction("Z (Jet colormap)", lambda: self.visualize_geoid_heights(cmap='jet')),
+            geoid_menu.addAction("Z (Jet colormap, isolines 2cm)", lambda: self.visualize_geoid_heights(cmap='jet',isolines=2.0)),
+            geoid_menu.addAction("Z (by index)", lambda: self.visualize_geoid_heights(use_index=True)),
+        ]
+
 
     def update_export_preview_actions(self):
         has_data = self.geodetic_x_table.rowCount() > 0 and self.geodetic_x_table.columnCount() > 0
@@ -379,6 +410,7 @@ class SPGManagerGUI(QMainWindow):
                     table.setItem(i, j, QTableWidgetItem(str(df.iat[i, j])))
         self.update_export_preview_actions()  # <-- Add this
 
+
     def export_grid_csv(self, table):
         file_path, _ = QFileDialog.getSaveFileName(self, "Export CSV", "", "CSV Files (*.csv)")
         if file_path:
@@ -499,6 +531,19 @@ class SPGManagerGUI(QMainWindow):
                 for dx, dy in zip(flat_x, flat_y):
                     f.write(f" {dx:.6f}  {dy:.6f}\n")
 
+
+
+    def export_geotiff_xy(self, **kwargs):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export GeoTiff XY", "", "GeoTiff Files (*.tif)")
+        if file_path:
+            save_geodetic_shifts_as_geotiff(self.spg, file_path, **kwargs)
+
+    def export_geotiff_z(self, **kwargs):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export GeoTiff Z", "", "GeoTiff Files (*.tif)")
+        if file_path:
+            save_geoid_as_geotiff(self.spg, file_path, **kwargs)
+
+
     def _write_surfer_grd(self, file_path, *arrays):
         grid = arrays[0]
         nrows, ncols = grid.shape
@@ -602,8 +647,20 @@ class SPGManagerGUI(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load SPG file: {str(e)}")
 
+
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = SPGManagerGUI()
+
+    parser = argparse.ArgumentParser(description="SPG File Manager GUI")
+    parser.add_argument("spg_file", nargs="?", help="SPG file to open")
+    args = parser.parse_args()
+
+    if args.spg_file:
+        window.load_spg_from_path(args.spg_file)
+
     window.show()
+
     sys.exit(app.exec_())
+

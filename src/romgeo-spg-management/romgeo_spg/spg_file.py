@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 from typing import Optional, Literal
 
+
+
 class SPGFile:
     """SPGFile class for handling and processing SPG (Spatial Pickle Grid) files.
     
