@@ -5,8 +5,10 @@ warnings.filterwarnings("ignore")
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QPushButton, QAction, QMessageBox, QInputDialog,
-    QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QTextEdit,QDialog
+    QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QTextEdit,QDialog,
+    QMenu, QLineEdit, QComboBox, QLabel
 )
+
 from PyQt5.QtCore import Qt
 
 from romgeo_spg.spg_file import SPGFile
@@ -25,6 +27,29 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 pd.set_option('display.max_colwidth', None)
 
+
+class TypeInputDialog(QDialog):
+    def __init__(self, parent=None, old_value=""):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Value")
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("New value:"))
+        self.line_edit = QTextEdit(self)
+        self.line_edit.setText(str(old_value))
+        layout.addWidget(self.line_edit)
+
+        layout.addWidget(QLabel("Type:"))
+        self.type_combo = QComboBox(self)
+        self.type_combo.addItems(["string", "int64", "float32", "float64"])
+        layout.addWidget(self.type_combo)
+
+        self.ok_button = QPushButton("OK", self)
+        self.ok_button.clicked.connect(self.accept)
+        layout.addWidget(self.ok_button)
+
+    def get_value_and_type(self):
+        return self.line_edit.toPlainText(), self.type_combo.currentText()
 
 class SPGManagerGUI(QMainWindow):
     def __init__(self):
@@ -165,7 +190,6 @@ class SPGManagerGUI(QMainWindow):
             geoid_menu.addAction("Z (by index)", lambda: self.visualize_geoid_heights(use_index=True)),
         ]
 
-
     def update_export_preview_actions(self):
         has_data = self.geodetic_x_table.rowCount() > 0 and self.geodetic_x_table.columnCount() > 0
         for action in self.export_actions:
@@ -181,6 +205,8 @@ class SPGManagerGUI(QMainWindow):
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels(["Key", "Value"])
         self.tree_widget.itemDoubleClicked.connect(self.edit_tree_item)
+        self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree_widget.customContextMenuRequested.connect(self.show_tree_context_menu)
         self.tabs.addTab(self.tree_widget, "SPG Tree")
 
         self.geodetic_x_table = QTableWidget()
@@ -193,9 +219,7 @@ class SPGManagerGUI(QMainWindow):
         self.tabs.addTab(self.geoid_table, "Geoid Heights Grid")
 
     def show_spg_structure(self):
-
         if self.spg:
-
             structure = self.spg.print_tree_structure()
             dlg = QDialog(self)
             dlg.setWindowTitle("SPG Structure")
@@ -225,12 +249,9 @@ class SPGManagerGUI(QMainWindow):
                 self.setWindowTitle(f"SPG File Manager - {file_path}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load SPG file: {str(e)}")
-
+        
     def save_spg(self):
         if self.spg:
-            
-            
-
             self.save_grids_from_tables()
             file_path, _ = QFileDialog.getSaveFileName(self, "Save SPG File", "", "SPG Files (*.spg)")
             if file_path:
@@ -256,7 +277,7 @@ class SPGManagerGUI(QMainWindow):
                 value = str(grid[i, j])
                 item = QTableWidgetItem(value)
                 table.setItem(i, j, item)
-
+    
     def save_grids_from_tables(self):
         def table_to_array(table):
             rows, cols = table.rowCount(), table.columnCount()
@@ -354,7 +375,7 @@ class SPGManagerGUI(QMainWindow):
                 item = QTreeWidgetItem([str(key), str(value)])
                 parent.addChild(item)
 
-    def _update_spg_tree_item(self, item, new_value):
+    def _update_spg_tree_item(self, item, new_value, type_hint=None):
         """
         Updates the self.spg dictionary based on the tree item's hierarchy and the new value.
         """
@@ -381,11 +402,36 @@ class SPGManagerGUI(QMainWindow):
 
         # Update the value for the last key in the path
         last_key = path[-1]
-        try:
-            # Attempt to convert the new value to a number if possible
-            current_dict[last_key] = float(new_value) if new_value.replace('.', '', 1).isdigit() else new_value
-        except ValueError:
-            current_dict[last_key] = new_value
+        if type_hint == None:
+            try:
+                # Try to convert to int, then float, else keep as string
+                if new_value.isdigit(): # integer
+                    current_dict[last_key] = int(new_value)
+                else:
+                    try:  # float
+                        current_dict[last_key] = float(new_value)
+                    except ValueError:  # string
+                        current_dict[last_key] = new_value
+            except Exception:   # fallback to string
+                current_dict[last_key] = new_value
+        else:
+            if type_hint == "int64":
+                try:
+                    current_dict[last_key] = int(new_value)
+                except Exception:
+                    current_dict[last_key] = new_value
+            elif type_hint == "float32":
+                try:
+                    current_dict[last_key] = np.float32(new_value)
+                except Exception:
+                    current_dict[last_key] = new_value
+            elif type_hint == "float64":
+                try:
+                    current_dict[last_key] = np.float64(new_value)
+                except Exception:
+                    current_dict[last_key] = new_value
+            else:  # string
+                current_dict[last_key] = new_value
 
     def edit_tree_item(self, item, column):
         if column == 1 and item.data(1, Qt.UserRole) is not None:
@@ -393,11 +439,13 @@ class SPGManagerGUI(QMainWindow):
             return
         if item.childCount() == 0 and column == 1:
             old_value = item.text(1)
-            new_value, ok = QInputDialog.getMultiLineText(self, "Edit Value", f"New value for '{item.text(0)}':", old_value)
-            if ok:
+            dlg = TypeInputDialog(self, old_value)
+            # new_value, ok = QInputDialog.getMultiLineText(self, "Edit Value", f"New value for '{item.text(0)}':", old_value)
+            if dlg.exec_():
+                new_value, value_type = dlg.get_value_and_type()
                 item.setText(1, new_value)
-                self._update_spg_tree_item(item, new_value)
-                
+                # update with selected type
+                self._update_spg_tree_item(item, new_value, value_type)
 
     def import_grid_csv(self, table):
         file_path, _ = QFileDialog.getOpenFileName(self, "Import CSV", "", "CSV Files (*.csv)")
@@ -409,8 +457,7 @@ class SPGManagerGUI(QMainWindow):
                 for j in range(df.shape[1]):
                     table.setItem(i, j, QTableWidgetItem(str(df.iat[i, j])))
         self.update_export_preview_actions()  # <-- Add this
-
-
+    
     def export_grid_csv(self, table):
         file_path, _ = QFileDialog.getSaveFileName(self, "Export CSV", "", "CSV Files (*.csv)")
         if file_path:
@@ -532,7 +579,6 @@ class SPGManagerGUI(QMainWindow):
                     f.write(f" {dx:.6f}  {dy:.6f}\n")
 
 
-
     def export_geotiff_xy(self, **kwargs):
         file_path, _ = QFileDialog.getSaveFileName(self, "Export GeoTiff XY", "", "GeoTiff Files (*.tif)")
         if file_path:
@@ -573,15 +619,18 @@ class SPGManagerGUI(QMainWindow):
                 for row in array:
                     f.write(" ".join(f"{v:.6f}" if np.isfinite(v) else "9999" for v in row) + "\n")
 
+
     def visualize_geodetic_shifts(self, axis='both', **kwargs):
         if self.spg:
             # You may want to update this to use the new data structure if needed
             visualize_heatmap(self.spg, "geodetic", axis=axis, saveas=None, **kwargs)
 
+
     def visualize_geoid_heights(self, **kwargs):
         if self.spg:
             # You may want to update this to use the new data structure if needed
             visualize_heatmap(self.spg, 'geoid', saveas=None, **kwargs)
+
 
     def compare_spg(self):
         if not self.spg:
@@ -622,6 +671,7 @@ class SPGManagerGUI(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to compare SPG files: {str(e)}")
 
+
     def drag_enter_event(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
@@ -630,12 +680,14 @@ class SPGManagerGUI(QMainWindow):
                     return
         event.ignore()
 
+
     def drop_event(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 file_path = url.toLocalFile()
                 if file_path.endswith(".spg"):
                     self.load_spg_from_path(file_path)
+
 
     def load_spg_from_path(self, file_path):
         try:
@@ -646,6 +698,43 @@ class SPGManagerGUI(QMainWindow):
             self.setWindowTitle(f"SPG File Manager - {file_path}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load SPG file: {str(e)}")
+
+    def show_tree_context_menu(self, position):
+        item = self.tree_widget.itemAt(position)
+        if item is None:
+            return
+        menu = QMenu(self)
+        add_action = menu.addAction("Add new key")
+        delete_action = menu.addAction("Delete key")
+        action = menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
+        if action == add_action:
+            key, ok = QInputDialog.getText(self, "Add Key", "Enter new key name:")
+            if ok and key:
+                parent_dict = self._get_dict_from_tree_item(item)
+                if key not in parent_dict:
+                    parent_dict[key] = {}
+                    self.tree_widget.clear()
+                    self.show_edit_tree()
+        elif action == delete_action:
+            parent = item.parent()
+            if parent:
+                parent_dict = self._get_dict_from_tree_item(parent)
+                key = item.text(0)
+                if key in parent_dict:
+                    del parent_dict[key]
+                    self.tree_widget.clear()
+                    self.show_edit_tree()
+
+    def _get_dict_from_tree_item(self, item):
+        path = []
+        while item is not None and item.text(0) != "SPG Structure":
+            path.insert(0, item.text(0))
+            item = item.parent()
+        current_dict = self.spg.data
+        for key in path:
+            if isinstance(current_dict, dict) and key in current_dict:
+                current_dict = current_dict[key]
+        return current_dict
 
 
 
