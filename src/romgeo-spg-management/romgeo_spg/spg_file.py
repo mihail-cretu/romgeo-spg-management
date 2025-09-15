@@ -93,12 +93,35 @@ class SPGFile:
     def generate_empty_spg_structure(self):
         return {
             "params": {
-                "input_file": "",
+                "geodetic_shifts_file": "",
+                "geoid_heights_file": "",
+                "version": "",
+                "interpolation": {
+                    "horizontal": 2,
+                    "vertical": 0                    
+                },
                 "output_file": "grid.spg",
                 "description": "Empty template grid",
+                "helmert": {
+                    "os_st70":{
+                        "tE": 119.7358,
+                        "tN": 31.8051,
+                        "dm": 0.11559991,
+                        "Rz": -0.22739706
+                    },
+                    "st70_os":{
+                        "tE": 1119.7358,
+                        "tN": 131.8051,
+                        "dm": 10.11559991,
+                        "Rz": 0.22739706
+                    },
+                }
             },
             "grids": {
                 "geoid_heights": {
+                    "name": "",
+                    "source": "",
+                    "target": "",
                     "grid": np.zeros((1, 160, 320), dtype=np.float32),  # placeholder shape
                     "metadata": {
                         "ndim": 1,
@@ -114,6 +137,9 @@ class SPGFile:
                     }
                 },
                 "geodetic_shifts": {
+                    "name": "",
+                    "source": "etrs89",
+                    "target": "krasovschi42",
                     "grid": np.zeros((2, 53, 72), dtype=np.float32),  # placeholder shape
                     "metadata": {
                         "ndim": 2,
@@ -137,6 +163,9 @@ class SPGFile:
                     "legacy": None
                 },
                 "created_by": "CNC",
+                "attribution": "",
+                "abstract": "",
+                "notes": "",
                 "release_date": None,
                 "valid_from": None,
                 "valid_to": None
